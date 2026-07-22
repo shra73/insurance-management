@@ -2,7 +2,7 @@ from flask import Flask
 from flask_cors import CORS
 from flask_migrate import Migrate
 from config import Config
-from extensions import db
+from extensions import db, bcrypt
 
 app = Flask(__name__)
 CORS(app)
@@ -10,14 +10,19 @@ CORS(app)
 # Load configuration (includes DATABASE_URL from .env)
 app.config.from_object(Config)
 
-# Initialize database
+# Initialize extensions
 db.init_app(app)
+bcrypt.init_app(app)
 migrate = Migrate(app, db)
 
 # Import models
 from models.user import User
 from models.customer import Customer
 from models.policy import Policy
+
+# Register blueprints
+from routes.auth import auth_bp
+app.register_blueprint(auth_bp)
 
 
 @app.route('/')
