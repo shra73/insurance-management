@@ -11,6 +11,10 @@ customer_bp = Blueprint("customer", __name__, url_prefix="/api/customers")
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_REGEX = re.compile(r"^\+?\d{7,15}$")
 
+MAX_PER_PAGE = 100
+DEFAULT_PAGE = 1
+DEFAULT_PER_PAGE = 10
+
 
 @customer_bp.route("", methods=["POST"])
 @roles_required("ADMIN", "AGENT")
@@ -76,3 +80,63 @@ def create_customer():
         "message": "Customer created successfully",
         "customer": new_customer.to_dict()
     }), 201
+
+
+@customer_bp.route("", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def get_customers():
+    page_raw = request.args.get("page", str(DEFAULT_PAGE))
+    per_page_raw = request.args.get("per_page", str(DEFAULT_PER_PAGE))
+
+    try:
+        page = int(page_raw)
+        if page < 1:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid 'page' parameter. Must be a positive integer"}), 400
+
+    try:
+        per_page = int(per_page_raw)
+        if per_page < 1:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid 'per_page' parameter. Must be a positive integer"}), 400
+
+    if per_page > MAX_PER_PAGE:
+        return jsonify({
+            "error": f"'per_page' cannot exceed {MAX_PER_PAGE}"
+        }), 400
+
+    pagination = Customer.query.order_by(Customer.id.asc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+
+    customers = [customer.to_dict() for customer in pagination.items]
+
+    return jsonify({
+        "customers": customers,
+        "pagination": {
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": pagination.total,
+            "pages": pagination.pages,
+            "has_next": pagination.has_next,
+            "has_prev": pagination.has_prev
+        }
+    }), 200
+
+
+@customer_bp.route("/<customer_id>", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def get_customer_by_id(customer_id):
+    if not customer_id.isdigit():
+        return jsonify({"error": "Invalid customer ID. Must be a positive integer"}), 400
+
+    customer = Customer.query.get(int(customer_id))
+
+    if not customer:
+        return jsonify({"error": "Customer not found"}), 404
+
+    return jsonify({
+        "customer": customer.to_dict()
+    }), 200
