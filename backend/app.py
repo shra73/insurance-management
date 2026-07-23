@@ -2,17 +2,18 @@ from flask import Flask
 from flask_cors import CORS
 from flask_migrate import Migrate
 from config import Config
-from extensions import db, bcrypt
+from extensions import db, bcrypt, jwt
 
 app = Flask(__name__)
 CORS(app)
 
-# Load configuration (includes DATABASE_URL from .env)
+# Load configuration
 app.config.from_object(Config)
 
 # Initialize extensions
 db.init_app(app)
 bcrypt.init_app(app)
+jwt.init_app(app)
 migrate = Migrate(app, db)
 
 # Import models
@@ -20,9 +21,12 @@ from models.user import User
 from models.customer import Customer
 from models.policy import Policy
 
-# Register blueprints
+# Register blueprints - CORRECT import names
 from routes.auth import auth_bp
+from routes.dashboard import dashboard_bp
+
 app.register_blueprint(auth_bp)
+app.register_blueprint(dashboard_bp)
 
 
 @app.route('/')
