@@ -20,6 +20,7 @@ class Policy(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     customer = db.relationship("Customer", back_populates="policies")
+    premium_payments = db.relationship("PremiumPayment", back_populates="policy")
 
     __table_args__ = (
         db.CheckConstraint("end_date > start_date", name="check_policy_end_after_start"),
@@ -44,4 +45,5 @@ class Policy(db.Model):
 
     def __repr__(self):
         return f"<Policy id={self.id} number={self.policy_number} customer_id={self.customer_id}>"
+    
     
