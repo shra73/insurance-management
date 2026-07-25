@@ -13,6 +13,8 @@ class Customer(db.Model):
     email = db.Column(db.String(120), nullable=False, unique=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
+    policies = db.relationship("Policy", back_populates="customer")
+
     def to_dict(self):
         return {
             "id": self.id,
