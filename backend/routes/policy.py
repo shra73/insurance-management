@@ -312,3 +312,43 @@ def update_policy(policy_id):
         "message": "Policy updated successfully",
         "policy": policy.to_dict()
     }), 200
+@policy_bp.route("/<policy_id>", methods=["DELETE"])
+@roles_required("ADMIN", "AGENT")
+def delete_policy(policy_id):
+    if not policy_id.isdigit():
+        return jsonify({"error": "Invalid policy ID. Must be a positive integer"}), 400
+
+    policy = Policy.query.get(int(policy_id))
+    if not policy:
+        return jsonify({"error": "Policy not found"}), 404
+
+    # --- Future-proofing hook ---
+    # Once Premium/Claim/Document models exist and have a relationship
+    # back to Policy (e.g. via a ForeignKey + db.relationship), check here
+    # whether this policy has any related records before allowing deletion.
+    # Example (NOT active yet, none of those models exist in this step):
+    #
+    # if policy.premiums and len(policy.premiums) > 0:
+    #     return jsonify({
+    #         "error": "Cannot delete policy with existing premium records"
+    #     }), 409
+    # if policy.claims and len(policy.claims) > 0:
+    #     return jsonify({
+    #         "error": "Cannot delete policy with existing claim records"
+    #     }), 409
+    #
+    # This project currently has no such relationships defined, so no check
+    # is performed here yet — deletion proceeds directly below.
+
+    try:
+        db.session.delete(policy)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({
+            "error": "An unexpected error occurred while deleting the policy"
+        }), 500
+
+    return jsonify({
+        "message": "Policy deleted successfully"
+    }), 200
