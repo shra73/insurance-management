@@ -35,6 +35,8 @@ from routes.policy import policy_bp
 from routes.premium import premium_bp
 from routes.claim import claim_bp
 from routes.document import document_bp
+from routes.report import report_bp
+
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
@@ -43,7 +45,7 @@ app.register_blueprint(policy_bp)
 app.register_blueprint(premium_bp)
 app.register_blueprint(claim_bp)
 app.register_blueprint(document_bp)
-
+app.register_blueprint(report_bp)
 
 # Flask raises a built-in 413 when MAX_CONTENT_LENGTH is exceeded, but by
 # default it returns an HTML error page, not JSON. This handler converts
@@ -64,3 +66,4 @@ def home():
 if __name__ == '__main__':
     print('Starting Flask server...')
     app.run(debug=True, port=5000)
+    
