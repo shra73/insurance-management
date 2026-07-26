@@ -403,4 +403,91 @@ def download_document(document_id):
             f"Unexpected error serving document file. document_id={document.id}"
         )
         return jsonify({"error": "An unexpected error occurred while retrieving the document"}), 500
+
+@document_bp.route("/<document_id>", methods=["DELETE"])
+@roles_required("ADMIN", "AGENT")
+def delete_document(document_id):
+    # NOTE ON CUSTOMER ACCESS:
+    # Same architectural gap flagged consistently across every Document and
+    # Claims endpoint in this project: safely verifying that a document
+    # belongs to "the authenticated customer's own policy" requires a
+    # JWT -> User -> Customer -> Policy -> Document chain, but no
+    # relationship links Customer to User anywhere in this codebase. Per
+    # the explicit instruction to reuse existing ownership verification
+    # (not invent a new one) and deny access otherwise, this endpoint
+    # remains restricted to ADMIN and AGENT until that identity link
+    # exists in a future step.
+
+    if not document_id.isdigit():
+        return jsonify({"error": "Invalid document ID. Must be a positive integer"}), 400
+
+    document = Document.query.get(int(document_id))
+    if not document:
+        return jsonify({"error": "Document not found"}), 404
+
+    # --- 1 & 2: Resolve safe file path, verify containment ---
+    upload_root = Path(current_app.config["UPLOAD_FOLDER"]).resolve()
+    candidate_path = (upload_root / document.stored_file_name).resolve()
+
+    try:
+        is_contained = candidate_path.is_relative_to(upload_root)
+    except AttributeError:
+        is_contained = str(candidate_path).startswith(str(upload_root))
+
+    if not is_contained:
+        current_app.logger.warning(
+            f"Blocked delete attempt with out-of-bounds path. "
+            f"document_id={document.id}, requested_by_user_id={get_jwt_identity()}"
+        )
+        return jsonify({"error": "Document not found"}), 404
+
+    # --- 3: Delete the physical file if it exists ---
+    # Track whether the file existed at the start, purely for the
+    # informational response message below — this does not change the
+    # deletion logic itself.
+    file_was_missing = not (candidate_path.exists() and candidate_path.is_file())
+
+    if not file_was_missing:
+        try:
+            candidate_path.unlink()
+        except OSError:
+            current_app.logger.error(
+                f"Failed to remove physical file during document delete. "
+                f"document_id={document.id}"
+            )
+            return jsonify({
+                "error": "An unexpected error occurred while deleting the document"
+            }), 500
+
+    # --- 4 & 5: Delete the Document row, commit ---
+    try:
+        db.session.delete(document)
+        db.session.commit()
+
+    except Exception:
+        db.session.rollback()
+        # The physical file may have already been removed above (step 3
+        # happens before this point). If the database commit now fails,
+        # we're left with a file gone but the row still present. This is
+        # logged clearly so it can be investigated/cleaned up manually,
+        # rather than silently hidden — but no internal exception detail
+        # is exposed to the client.
+        current_app.logger.error(
+            f"Database commit failed after physical file removal during "
+            f"document delete. document_id={document.id}, "
+            f"physical_file_removed={not file_was_missing}"
+        )
+        return jsonify({
+            "error": "An unexpected error occurred while deleting the document"
+        }), 500
+
+    if file_was_missing:
+        return jsonify({
+            "message": "Document deleted successfully. "
+                       "Note: the physical file was already missing from storage."
+        }), 200
+
+    return jsonify({
+        "message": "Document deleted successfully"
+    }), 200
     
