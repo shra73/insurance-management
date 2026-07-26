@@ -9,6 +9,7 @@ from models.policy import Policy
 from models.claim import Claim
 from models.premium import PremiumPayment
 from models.document import Document
+from sqlalchemy import extract
 
 dashboard_bp = Blueprint("dashboard", __name__, url_prefix="/api")
 
@@ -120,4 +121,87 @@ def dashboard_summary():
         return jsonify({
             "error": "An unexpected error occurred while generating the dashboard summary"
         }), 500
+
+
+  
+
+MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+@dashboard_bp.route("/dashboard/monthly-premiums", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def monthly_premiums():
+    try:
+        # Group PAID premium payments by calendar month (across all years),
+        # summing the amount collected in each month. extract('month', ...)
+        # lets PostgreSQL do the grouping itself — no rows are pulled into
+        # Python beyond the 12 (at most) summary rows this query returns.
+        results = db.session.query(
+            extract("month", PremiumPayment.payment_date).label("month_num"),
+            func.coalesce(func.sum(PremiumPayment.amount), 0).label("total")
+        ).filter(
+            PremiumPayment.payment_status == "PAID",
+            PremiumPayment.payment_date.isnot(None)
+        ).group_by("month_num").order_by("month_num").all()
+
+        data = [
+            {"month": MONTH_NAMES[int(row.month_num) - 1], "total": str(Decimal(row.total))}
+            for row in results
+        ]
+        return jsonify(data), 200
+
+    except Exception:
+        return jsonify({"error": "An unexpected error occurred while generating monthly premiums"}), 500
+
+
+@dashboard_bp.route("/dashboard/monthly-claims", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def monthly_claims():
+    try:
+        results = db.session.query(
+            extract("month", Claim.claim_date).label("month_num"),
+            func.count(Claim.id).label("claim_count")
+        ).group_by("month_num").order_by("month_num").all()
+
+        data = [
+            {"month": MONTH_NAMES[int(row.month_num) - 1], "claims": row.claim_count}
+            for row in results
+        ]
+        return jsonify(data), 200
+
+    except Exception:
+        return jsonify({"error": "An unexpected error occurred while generating monthly claims"}), 500
+
+
+@dashboard_bp.route("/dashboard/policy-status", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def policy_status_breakdown():
+    try:
+        results = db.session.query(
+            Policy.status,
+            func.count(Policy.id).label("count")
+        ).group_by(Policy.status).all()
+
+        data = {row.status: row.count for row in results}
+        return jsonify(data), 200
+
+    except Exception:
+        return jsonify({"error": "An unexpected error occurred while generating policy status breakdown"}), 500
+
+
+@dashboard_bp.route("/dashboard/claim-status", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def claim_status_breakdown():
+    try:
+        results = db.session.query(
+            Claim.status,
+            func.count(Claim.id).label("count")
+        ).group_by(Claim.status).all()
+
+        data = {row.status: row.count for row in results}
+        return jsonify(data), 200
+
+    except Exception:
+        return jsonify({"error": "An unexpected error occurred while generating claim status breakdown"}), 500
     
