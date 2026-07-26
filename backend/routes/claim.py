@@ -6,6 +6,7 @@ from extensions import db
 from models.claim import Claim
 from models.policy import Policy
 from utils.decorators import roles_required
+from sqlalchemy import desc
 
 claim_bp = Blueprint("claim", __name__, url_prefix="/api/claims")
 
@@ -117,3 +118,96 @@ def create_claim():
         "message": "Claim filed successfully",
         "claim": new_claim.to_dict()
     }), 201
+
+
+
+MAX_PER_PAGE = 100
+DEFAULT_PAGE = 1
+DEFAULT_PER_PAGE = 10
+
+
+@claim_bp.route("", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def get_claims():
+    page_raw = request.args.get("page", str(DEFAULT_PAGE))
+    per_page_raw = request.args.get("per_page", str(DEFAULT_PER_PAGE))
+
+    # Validate page
+    try:
+        page = int(page_raw)
+        if page < 1:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid 'page' parameter. Must be a positive integer"}), 400
+
+    # Validate per_page
+    try:
+        per_page = int(per_page_raw)
+        if per_page < 1:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid 'per_page' parameter. Must be a positive integer"}), 400
+
+    if per_page > MAX_PER_PAGE:
+        return jsonify({"error": f"'per_page' cannot exceed {MAX_PER_PAGE}"}), 400
+
+    # Join Claim with Policy so policy_number is available without a per-row query
+    query = Claim.query.join(Policy, Claim.policy_id == Policy.id).order_by(
+        desc(Claim.claim_date).nullslast(),
+        desc(Claim.created_at)
+    )
+
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+
+    claims = []
+    for claim in pagination.items:
+        claims.append({
+            "id": claim.id,
+            "policy_id": claim.policy_id,
+            "policy_number": claim.policy.policy_number,
+            "claim_number": claim.claim_number,
+            "claim_amount": str(claim.claim_amount),
+            "claim_date": claim.claim_date.isoformat() if claim.claim_date else None,
+            "status": claim.status,
+            "description": claim.description,
+            "created_at": claim.created_at.isoformat() if claim.created_at else None,
+            "updated_at": claim.updated_at.isoformat() if claim.updated_at else None
+        })
+
+    return jsonify({
+        "claims": claims,
+        "pagination": {
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": pagination.total,
+            "pages": pagination.pages,
+            "has_next": pagination.has_next,
+            "has_prev": pagination.has_prev
+        }
+    }), 200
+
+
+@claim_bp.route("/<claim_id>", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def get_claim_by_id(claim_id):
+    if not claim_id.isdigit():
+        return jsonify({"error": "Invalid claim ID. Must be a positive integer"}), 400
+
+    claim = Claim.query.get(int(claim_id))
+    if not claim:
+        return jsonify({"error": "Claim not found"}), 404
+
+    return jsonify({
+        "claim": {
+            "id": claim.id,
+            "policy_id": claim.policy_id,
+            "policy_number": claim.policy.policy_number,
+            "claim_number": claim.claim_number,
+            "claim_amount": str(claim.claim_amount),
+            "claim_date": claim.claim_date.isoformat() if claim.claim_date else None,
+            "status": claim.status,
+            "description": claim.description,
+            "created_at": claim.created_at.isoformat() if claim.created_at else None,
+            "updated_at": claim.updated_at.isoformat() if claim.updated_at else None
+        }
+    }), 200
