@@ -28,12 +28,15 @@ from routes.dashboard import dashboard_bp
 from routes.customer import customer_bp
 from routes.policy import policy_bp
 from routes.premium import premium_bp
+from routes.claim import claim_bp
+
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(customer_bp)
 app.register_blueprint(policy_bp)
 app.register_blueprint(premium_bp)
+app.register_blueprint(claim_bp)
 
 
 @app.route('/')
@@ -45,6 +48,7 @@ if __name__ == '__main__':
     print('Starting Flask server...')
     app.run(debug=True, port=5000)
     
+
     
 
     
