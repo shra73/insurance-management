@@ -9,6 +9,7 @@ from models.policy import Policy
 from models.user import User
 from utils.decorators import roles_required
 from flask_jwt_extended import get_jwt_identity
+from sqlalchemy import desc
 
 document_bp = Blueprint("document", __name__, url_prefix="/api/documents")
 
@@ -176,3 +177,138 @@ def upload_document():
             "created_at": new_document.created_at.isoformat() if new_document.created_at else None
         }
     }), 201
+
+from sqlalchemy import desc
+
+MAX_PER_PAGE = 100
+DEFAULT_PAGE = 1
+DEFAULT_PER_PAGE = 10
+
+
+@document_bp.route("", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def get_documents():
+    # NOTE ON CUSTOMER ACCESS:
+    # Per the same architectural gap already flagged in Claims and Document
+    # Upload: there is still no link between a User's JWT identity and a
+    # Customer/Policy record anywhere in this codebase. Safely scoping a
+    # CUSTOMER-role request to "only documents belonging to policies owned
+    # by that customer" would require querying Document -> Policy -> Customer
+    # -> User, but no relationship connects Customer to User currently exists.
+    # Per your explicit instruction not to invent a new authentication
+    # mechanism, this endpoint remains restricted to ADMIN and AGENT until
+    # that identity link is established in a future step.
+
+    page_raw = request.args.get("page", str(DEFAULT_PAGE))
+    per_page_raw = request.args.get("per_page", str(DEFAULT_PER_PAGE))
+    search = request.args.get("search", "").strip()
+    filter_policy_id_raw = request.args.get("policy_id", "").strip()
+    filter_document_type = request.args.get("document_type", "").strip()
+
+    try:
+        page = int(page_raw)
+        if page < 1:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid 'page' parameter. Must be a positive integer"}), 400
+
+    try:
+        per_page = int(per_page_raw)
+        if per_page < 1:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid 'per_page' parameter. Must be a positive integer"}), 400
+
+    if per_page > MAX_PER_PAGE:
+        return jsonify({"error": f"'per_page' cannot exceed {MAX_PER_PAGE}"}), 400
+
+    filter_policy_id = None
+    if filter_policy_id_raw:
+        if not filter_policy_id_raw.isdigit():
+            return jsonify({"error": "Invalid 'policy_id' filter. Must be a positive integer"}), 400
+        filter_policy_id = int(filter_policy_id_raw)
+
+    if filter_document_type and filter_document_type not in VALID_DOCUMENT_TYPES:
+        return jsonify({
+            "error": "Invalid 'document_type' filter",
+            "allowed_types": list(VALID_DOCUMENT_TYPES)
+        }), 400
+
+    query = Document.query
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            db.or_(
+                Document.original_file_name.ilike(search_pattern),
+                Document.stored_file_name.ilike(search_pattern)
+            )
+        )
+
+    if filter_policy_id is not None:
+        query = query.filter(Document.policy_id == filter_policy_id)
+    if filter_document_type:
+        query = query.filter(Document.document_type == filter_document_type)
+
+    query = query.order_by(desc(Document.created_at), desc(Document.id))
+
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+
+    documents = [
+        {
+            "id": d.id,
+            "policy_id": d.policy_id,
+            "original_file_name": d.original_file_name,
+            "stored_file_name": d.stored_file_name,
+            "file_type": d.file_type,
+            "file_size": d.file_size,
+            "document_type": d.document_type,
+            "uploaded_by": d.uploaded_by,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+            "updated_at": d.updated_at.isoformat() if d.updated_at else None
+        }
+        for d in pagination.items
+    ]
+
+    return jsonify({
+        "documents": documents,
+        "pagination": {
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": pagination.total,
+            "pages": pagination.pages,
+            "has_next": pagination.has_next,
+            "has_prev": pagination.has_prev
+        }
+    }), 200
+
+
+@document_bp.route("/<document_id>", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def get_document_by_id(document_id):
+    # Same CUSTOMER-access note as get_documents above applies here.
+    # Since ownership cannot currently be verified (no User<->Customer link),
+    # this stays restricted to ADMIN/AGENT to avoid any risk of IDOR — it
+    # would be unsafe to allow broader access without a real ownership check.
+
+    if not document_id.isdigit():
+        return jsonify({"error": "Invalid document ID. Must be a positive integer"}), 400
+
+    document = Document.query.get(int(document_id))
+    if not document:
+        return jsonify({"error": "Document not found"}), 404
+
+    return jsonify({
+        "document": {
+            "id": document.id,
+            "policy_id": document.policy_id,
+            "original_file_name": document.original_file_name,
+            "stored_file_name": document.stored_file_name,
+            "file_type": document.file_type,
+            "file_size": document.file_size,
+            "document_type": document.document_type,
+            "uploaded_by": document.uploaded_by,
+            "created_at": document.created_at.isoformat() if document.created_at else None,
+            "updated_at": document.updated_at.isoformat() if document.updated_at else None
+        }
+    }), 200
