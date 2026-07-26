@@ -279,3 +279,130 @@ def update_claim_status(claim_id):
             "updated_at": claim.updated_at.isoformat() if claim.updated_at else None
         }
     }), 200
+
+
+UPDATABLE_STATUSES = ("PENDING", "UNDER_REVIEW")
+DELETABLE_STATUSES = ("PENDING",)
+
+
+@claim_bp.route("/<claim_id>", methods=["PATCH"])
+@roles_required("ADMIN", "AGENT")
+def update_claim(claim_id):
+    if not claim_id.isdigit():
+        return jsonify({"error": "Invalid claim ID. Must be a positive integer"}), 400
+
+    claim = Claim.query.get(int(claim_id))
+    if not claim:
+        return jsonify({"error": "Claim not found"}), 404
+
+    # Only PENDING/UNDER_REVIEW claims may have their details edited.
+    # Once a claim has been decided (APPROVED/REJECTED) or paid out (SETTLED),
+    # its record must remain stable for audit/history purposes.
+    if claim.status not in UPDATABLE_STATUSES:
+        return jsonify({
+            "error": "Claim cannot be modified in its current status",
+            "status": claim.status
+        }), 409
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Request body must be valid JSON"}), 400
+
+    allowed_fields = {"claim_amount", "claim_date", "description"}
+    disallowed_fields = [key for key in data.keys() if key not in allowed_fields]
+    if disallowed_fields:
+        return jsonify({
+            "error": "These fields cannot be modified through this endpoint",
+            "fields": disallowed_fields
+        }), 400
+
+    if not data:
+        return jsonify({"error": "No valid fields provided to update"}), 400
+
+    # --- Validate claim_amount if provided ---
+    new_claim_amount = None
+    if "claim_amount" in data:
+        try:
+            new_claim_amount = Decimal(str(data["claim_amount"]))
+        except (InvalidOperation, ValueError, TypeError):
+            return jsonify({"error": "'claim_amount' must be a valid monetary value"}), 400
+        if new_claim_amount <= 0:
+            return jsonify({"error": "'claim_amount' must be a positive monetary value"}), 400
+
+    # --- Validate claim_date if provided ---
+    new_claim_date = None
+    if "claim_date" in data:
+        try:
+            new_claim_date = datetime.strptime(data["claim_date"], "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid date format for claim_date. Expected YYYY-MM-DD"}), 400
+
+    # --- Validate description if provided ---
+    new_description = None
+    description_provided = "description" in data
+    if description_provided:
+        new_description = data["description"]
+        if new_description is not None and not isinstance(new_description, str):
+            return jsonify({"error": "'description' must be a string"}), 400
+        if new_description is not None and len(new_description) > MAX_DESCRIPTION_LENGTH:
+            return jsonify({
+                "error": f"'description' cannot exceed {MAX_DESCRIPTION_LENGTH} characters"
+            }), 400
+
+    # --- Apply updates ---
+    try:
+        if new_claim_amount is not None:
+            claim.claim_amount = new_claim_amount
+        if new_claim_date is not None:
+            claim.claim_date = new_claim_date
+        if description_provided:
+            claim.description = new_description
+
+        db.session.commit()
+
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "An unexpected error occurred while updating the claim"}), 500
+
+    return jsonify({
+        "message": "Claim updated successfully",
+        "claim": {
+            "id": claim.id,
+            "policy_id": claim.policy_id,
+            "claim_number": claim.claim_number,
+            "claim_amount": str(claim.claim_amount),
+            "claim_date": claim.claim_date.isoformat() if claim.claim_date else None,
+            "status": claim.status,
+            "description": claim.description,
+            "updated_at": claim.updated_at.isoformat() if claim.updated_at else None
+        }
+    }), 200
+
+
+@claim_bp.route("/<claim_id>", methods=["DELETE"])
+@roles_required("ADMIN", "AGENT")
+def delete_claim(claim_id):
+    if not claim_id.isdigit():
+        return jsonify({"error": "Invalid claim ID. Must be a positive integer"}), 400
+
+    claim = Claim.query.get(int(claim_id))
+    if not claim:
+        return jsonify({"error": "Claim not found"}), 404
+
+    # Only a claim that hasn't entered processing yet (PENDING) may be deleted.
+    # Once a claim has been reviewed, decided, or settled, it must remain
+    # available for audit/history rather than being erasable.
+    if claim.status not in DELETABLE_STATUSES:
+        return jsonify({
+            "error": "Claim cannot be deleted in its current status",
+            "status": claim.status
+        }), 409
+
+    try:
+        db.session.delete(claim)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "An unexpected error occurred while deleting the claim"}), 500
+
+    return jsonify({"message": "Claim deleted successfully"}), 200
