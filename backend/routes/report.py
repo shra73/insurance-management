@@ -6,11 +6,16 @@ from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
+
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 )
 from models.customer import Customer
 from utils.decorators import roles_required
+import io as _io
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+from openpyxl.utils import get_column_letter
 
 report_bp = Blueprint("report", __name__, url_prefix="/api/reports")
 
@@ -133,4 +138,82 @@ def customer_report_pdf():
         return jsonify({
             "error": "An unexpected error occurred while generating the customer report"
         }), 500
+
+
+
+@report_bp.route("/customers/excel", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def customer_report_excel():
+    try:
+        customers = Customer.query.order_by(Customer.name.asc()).all()
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Customers"
+
+        headers = ["ID", "Customer Name", "Email", "Phone", "Address", "Date Of Birth", "Created At"]
+        ws.append(headers)
+
+        # --- Header styling ---
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1A2B4C", end_color="1A2B4C", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+
+        for col_num, _ in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+
+        # --- Thin border applied to every cell (header + data) ---
+        thin_side = Side(style="thin", color="CCCCCC")
+        thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+        # --- Data rows ---
+        for customer in customers:
+            ws.append([
+                customer.id,
+                customer.name,
+                customer.email,
+                customer.phone,
+                customer.address,
+                customer.dob.isoformat() if customer.dob else "",
+                customer.created_at.strftime("%Y-%m-%d %H:%M:%S") if customer.created_at else ""
+            ])
+
+        # Apply borders to every populated cell (header row + all data rows)
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=len(headers)):
+            for cell in row:
+                cell.border = thin_border
+
+        # --- Auto-adjust column widths based on the longest value in each column ---
+        for col_num, header in enumerate(headers, start=1):
+            column_letter = get_column_letter(col_num)
+            max_length = len(header)
+            for row_num in range(2, ws.max_row + 1):
+                cell_value = ws.cell(row=row_num, column=col_num).value
+                if cell_value is not None:
+                    max_length = max(max_length, len(str(cell_value)))
+            ws.column_dimensions[column_letter].width = max_length + 4
+
+        # --- Freeze the header row so it stays visible while scrolling ---
+        ws.freeze_panes = "A2"
+
+        # --- Save to an in-memory buffer, never to a temp file on disk ---
+        buffer = _io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        return send_file(
+            buffer,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name="customer_report.xlsx"
+        )
+
+    except Exception:
+        return jsonify({
+            "error": "An unexpected error occurred while generating the customer Excel report"
+        }), 500
+    
     
