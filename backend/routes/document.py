@@ -10,6 +10,9 @@ from models.user import User
 from utils.decorators import roles_required
 from flask_jwt_extended import get_jwt_identity
 from sqlalchemy import desc
+from pathlib import Path
+from flask import send_file, current_app
+from flask_jwt_extended import get_jwt_identity
 
 document_bp = Blueprint("document", __name__, url_prefix="/api/documents")
 
@@ -312,3 +315,92 @@ def get_document_by_id(document_id):
             "updated_at": document.updated_at.isoformat() if document.updated_at else None
         }
     }), 200
+
+
+
+MIME_TYPES_BY_EXTENSION = {
+    "pdf": "application/pdf",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+@document_bp.route("/<document_id>/download", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def download_document(document_id):
+    # NOTE ON CUSTOMER ACCESS:
+    # The required authorization chain for a CUSTOMER is:
+    #   JWT -> User -> Customer -> Policy ownership -> Document
+    # This chain cannot currently be completed safely: there is still no
+    # relationship connecting a User (JWT identity) to a Customer record
+    # anywhere in this codebase. This exact gap has been flagged consistently
+    # across every prior module (Claims, Document Upload, Document List).
+    # Per the explicit instruction not to invent a new customer ownership
+    # system, and because IDOR prevention takes priority over feature
+    # completeness, this endpoint remains restricted to ADMIN and AGENT
+    # until that identity link is established in a future step.
+
+    if not document_id.isdigit():
+        return jsonify({"error": "Invalid document ID. Must be a positive integer"}), 400
+
+    document = Document.query.get(int(document_id))
+    if not document:
+        return jsonify({"error": "Document not found"}), 404
+
+    # --- Safe path resolution ---
+    # The filesystem location is derived ENTIRELY from trusted server-side
+    # data: the configured upload directory (from app config) plus the
+    # stored_file_name already recorded in the database at upload time.
+    # Nothing from the request (query params, headers, body) is ever used
+    # to build this path — the client has no ability to influence it.
+    upload_root = Path(_current_app.config["UPLOAD_FOLDER"]).resolve()
+    candidate_path = (upload_root / document.stored_file_name).resolve()
+
+    # Defense in depth: even though stored_file_name is trusted (it was
+    # generated server-side at upload time, never taken from client input),
+    # this explicit containment check guarantees the resolved path can never
+    # fall outside the configured upload directory, regardless of how it
+    # was produced.
+    try:
+        is_contained = candidate_path.is_relative_to(upload_root)
+    except AttributeError:
+        # is_relative_to() requires Python 3.9+; fall back to a string-prefix
+        # check for older interpreters while keeping the same guarantee.
+        is_contained = str(candidate_path).startswith(str(upload_root))
+
+    if not is_contained:
+        current_app.logger.warning(
+            f"Blocked download attempt outside upload directory. "
+            f"document_id={document.id}, requested_by_user_id={get_jwt_identity()}"
+        )
+        return jsonify({"error": "Document file not found"}), 404
+
+    # --- File existence check ---
+    if not candidate_path.exists() or not candidate_path.is_file():
+        current_app.logger.warning(
+            f"Document record exists but physical file is missing. "
+            f"document_id={document.id}, requested_by_user_id={get_jwt_identity()}"
+        )
+        return jsonify({"error": "Document file not found"}), 404
+
+    # --- Determine a safe MIME type from the trusted file_type column ---
+    # (never trust a client-supplied MIME type; there isn't one in this
+    # request anyway, since the client supplies no file information at all)
+    mimetype = MIME_TYPES_BY_EXTENSION.get(document.file_type, "application/octet-stream")
+
+    try:
+        return send_file(
+            candidate_path,
+            mimetype=mimetype,
+            as_attachment=True,
+            download_name=document.original_file_name
+        )
+    except Exception:
+        current_app.logger.error(
+            f"Unexpected error serving document file. document_id={document.id}"
+        )
+        return jsonify({"error": "An unexpected error occurred while retrieving the document"}), 500
+    
