@@ -1,18 +1,21 @@
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from flask import Blueprint, request, jsonify
+from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
 from extensions import db
 from models.claim import Claim
 from models.policy import Policy
 from utils.decorators import roles_required
-from sqlalchemy import desc
 
 claim_bp = Blueprint("claim", __name__, url_prefix="/api/claims")
 
 VALID_CLAIM_STATUSES = ("PENDING", "UNDER_REVIEW", "APPROVED", "REJECTED", "SETTLED")
 DEFAULT_STATUS = "PENDING"
 MAX_DESCRIPTION_LENGTH = 2000
+MAX_PER_PAGE = 100
+DEFAULT_PAGE = 1
+DEFAULT_PER_PAGE = 10
 
 
 @claim_bp.route("", methods=["POST"])
@@ -30,7 +33,6 @@ def create_claim():
     status = data.get("status", DEFAULT_STATUS)
     description = data.get("description")
 
-    # --- Validate policy_id ---
     if policy_id is None:
         return jsonify({"error": "'policy_id' is required"}), 400
     if not isinstance(policy_id, int):
@@ -40,7 +42,6 @@ def create_claim():
     if not policy:
         return jsonify({"error": "Policy not found"}), 404
 
-    # --- Validate claim_number ---
     if not claim_number or not isinstance(claim_number, str) or not claim_number.strip():
         return jsonify({"error": "'claim_number' is required and must be a non-empty string"}), 400
 
@@ -48,7 +49,6 @@ def create_claim():
     if existing_claim:
         return jsonify({"error": "A claim with this claim_number already exists"}), 409
 
-    # --- Validate claim_amount ---
     if claim_amount_raw is None or claim_amount_raw == "":
         return jsonify({"error": "'claim_amount' is required"}), 400
     try:
@@ -58,7 +58,6 @@ def create_claim():
     if claim_amount <= 0:
         return jsonify({"error": "'claim_amount' must be a positive monetary value"}), 400
 
-    # --- Validate claim_date ---
     if not claim_date_raw:
         return jsonify({"error": "'claim_date' is required"}), 400
     try:
@@ -66,12 +65,6 @@ def create_claim():
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid date format for claim_date. Expected YYYY-MM-DD"}), 400
 
-    # --- Validate status ---
-    # New claims are restricted to PENDING regardless of what the client sends.
-    # This endpoint is for FILING a claim, not processing/approving one — that
-    # is a separate future workflow. Silently ignoring a client-supplied status
-    # value here (rather than accepting it) prevents a caller from creating a
-    # claim that is already APPROVED or SETTLED at the moment it's filed.
     if status not in VALID_CLAIM_STATUSES:
         return jsonify({
             "error": "Invalid status",
@@ -84,7 +77,6 @@ def create_claim():
                      f"Claim processing (approval, rejection, settlement) is handled separately."
         }), 400
 
-    # --- Validate description ---
     if description is not None:
         if not isinstance(description, str):
             return jsonify({"error": "'description' must be a string"}), 400
@@ -93,7 +85,6 @@ def create_claim():
                 "error": f"'description' cannot exceed {MAX_DESCRIPTION_LENGTH} characters"
             }), 400
 
-    # --- Create and save ---
     try:
         new_claim = Claim(
             policy_id=policy_id,
@@ -120,19 +111,17 @@ def create_claim():
     }), 201
 
 
-
-MAX_PER_PAGE = 100
-DEFAULT_PAGE = 1
-DEFAULT_PER_PAGE = 10
-
-
 @claim_bp.route("", methods=["GET"])
 @roles_required("ADMIN", "AGENT")
 def get_claims():
     page_raw = request.args.get("page", str(DEFAULT_PAGE))
     per_page_raw = request.args.get("per_page", str(DEFAULT_PER_PAGE))
+    search = request.args.get("search", "").strip()
 
-    # Validate page
+    filter_status = request.args.get("status", "").strip()
+    filter_policy_id_raw = request.args.get("policy_id", "").strip()
+    filter_policy_type = request.args.get("policy_type", "").strip()
+
     try:
         page = int(page_raw)
         if page < 1:
@@ -140,7 +129,6 @@ def get_claims():
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid 'page' parameter. Must be a positive integer"}), 400
 
-    # Validate per_page
     try:
         per_page = int(per_page_raw)
         if per_page < 1:
@@ -151,10 +139,39 @@ def get_claims():
     if per_page > MAX_PER_PAGE:
         return jsonify({"error": f"'per_page' cannot exceed {MAX_PER_PAGE}"}), 400
 
-    # Join Claim with Policy so policy_number is available without a per-row query
-    query = Claim.query.join(Policy, Claim.policy_id == Policy.id).order_by(
+    if filter_status and filter_status not in VALID_CLAIM_STATUSES:
+        return jsonify({
+            "error": "Invalid 'status' filter",
+            "allowed_statuses": list(VALID_CLAIM_STATUSES)
+        }), 400
+
+    filter_policy_id = None
+    if filter_policy_id_raw:
+        if not filter_policy_id_raw.isdigit():
+            return jsonify({"error": "Invalid 'policy_id' filter. Must be a positive integer"}), 400
+        filter_policy_id = int(filter_policy_id_raw)
+
+    query = Claim.query.join(Policy, Claim.policy_id == Policy.id)
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            db.or_(
+                Claim.claim_number.ilike(search_pattern),
+                Policy.policy_number.ilike(search_pattern)
+            )
+        )
+
+    if filter_status:
+        query = query.filter(Claim.status == filter_status)
+    if filter_policy_id is not None:
+        query = query.filter(Claim.policy_id == filter_policy_id)
+    if filter_policy_type:
+        query = query.filter(Policy.type.ilike(f"%{filter_policy_type}%"))
+
+    query = query.order_by(
         desc(Claim.claim_date).nullslast(),
-        desc(Claim.created_at)
+        desc(Claim.id)
     )
 
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
