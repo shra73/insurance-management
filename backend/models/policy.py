@@ -21,6 +21,7 @@ class Policy(db.Model):
 
     customer = db.relationship("Customer", back_populates="policies")
     premium_payments = db.relationship("PremiumPayment", back_populates="policy")
+    claims = db.relationship("Claim", back_populates="policy")
 
     __table_args__ = (
         db.CheckConstraint("end_date > start_date", name="check_policy_end_after_start"),

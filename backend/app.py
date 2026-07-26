@@ -19,7 +19,7 @@ from models.user import User
 from models.customer import Customer
 from models.policy import Policy
 from models.premium import PremiumPayment
-
+from models.claim import Claim
 
 
 # Register blueprints
@@ -44,6 +44,7 @@ def home():
 if __name__ == '__main__':
     print('Starting Flask server...')
     app.run(debug=True, port=5000)
+    
     
 
     
