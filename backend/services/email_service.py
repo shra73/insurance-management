@@ -148,3 +148,35 @@ def send_policy_created_email(customer_email, customer_name, policy):
         recipients=[customer_email],
         html_body=html_body
     )
+
+def send_premium_payment_email(customer_email, customer_name, payment, policy, previous_outstanding, remaining_outstanding):
+    """
+    Sends the premium payment receipt email after a payment is successfully
+    created and committed. `payment` and `policy` are the actual committed
+    model instances, and both outstanding-amount values are passed in
+    already-calculated by the caller (reusing the existing Premium History
+    calculation logic) rather than being recomputed here.
+    """
+    formatted_amount = f"\u20b9{payment.amount:,.2f}"
+    formatted_previous_outstanding = f"\u20b9{previous_outstanding:,.2f}"
+    formatted_remaining_outstanding = f"\u20b9{remaining_outstanding:,.2f}"
+
+    html_body = render_template(
+        "emails/premium_payment.html",
+        customer_name=customer_name,
+        payment_reference=payment.payment_reference or f"PMT-{payment.id}",
+        policy_number=policy.policy_number,
+        policy_type=policy.type,
+        amount_paid=formatted_amount,
+        payment_date=payment.payment_date.isoformat() if payment.payment_date else "N/A",
+        payment_status=payment.payment_status,
+        previous_outstanding=formatted_previous_outstanding,
+        remaining_outstanding=formatted_remaining_outstanding,
+        current_year=datetime.utcnow().year
+    )
+
+    return send_html_email(
+        subject="Premium Payment Receipt - Insurance Management Platform",
+        recipients=[customer_email],
+        html_body=html_body
+    )
