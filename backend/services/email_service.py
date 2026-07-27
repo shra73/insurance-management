@@ -1,42 +1,59 @@
 import logging
-from datetime import datetime
-from flask import render_template
 from flask_mail import Message
 from extensions import mail
+from datetime import datetime
+from flask import render_template
 
 logger = logging.getLogger(__name__)
 
 
 def send_email(subject, recipients, body, cc=None, bcc=None):
+    """
+    Send a plain-text email.
+
+    subject:    email subject line
+    recipients: list of recipient email addresses
+    body:       plain text body
+    cc:         optional list of CC addresses
+    bcc:        optional list of BCC addresses
+    """
     return _send(subject, recipients, body=body, cc=cc, bcc=bcc)
 
 
 def send_html_email(subject, recipients, html_body, cc=None, bcc=None):
+    """
+    Send an HTML email.
+
+    subject:    email subject line
+    recipients: list of recipient email addresses
+    html_body:  HTML content for the email body
+    cc:         optional list of CC addresses
+    bcc:        optional list of BCC addresses
+    """
     return _send(subject, recipients, html=html_body, cc=cc, bcc=bcc)
 
 
 def send_email_with_attachment(subject, recipients, body=None, html=None,
                                 attachments=None, cc=None, bcc=None):
+    """
+    Send an email (plain text and/or HTML) with one or more file attachments.
+
+    attachments: list of dicts, each like:
+        {
+            "filename": "report.pdf",
+            "content_type": "application/pdf",
+            "data": <bytes>
+        }
+    """
     return _send(subject, recipients, body=body, html=html,
                   attachments=attachments, cc=cc, bcc=bcc)
 
 
-def send_welcome_email(user_email, user_name):
-    html_body = render_template(
-        "emails/welcome.html",
-        user_name=user_name,
-        login_url="http://127.0.0.1:5000/",
-        current_year=datetime.utcnow().year
-    )
-
-    return send_html_email(
-        subject="Welcome to Insurance Management Platform",
-        recipients=[user_email],
-        html_body=html_body
-    )
-
-
 def _send(subject, recipients, body=None, html=None, attachments=None, cc=None, bcc=None):
+    """
+    Internal shared sender. All public functions above funnel through this
+    one place, so SMTP error handling and logging only need to exist once.
+    """
     if not recipients:
         logger.error("Email send attempted with no recipients.")
         return False, "No recipients provided"
@@ -64,6 +81,8 @@ def _send(subject, recipients, body=None, html=None, attachments=None, cc=None, 
 
         mail.send(msg)
 
+        # Log only safe, non-sensitive metadata — never credentials, never
+        # full email body content that might contain personal/financial data.
         logger.info(
             f"Email sent successfully. subject='{subject}', "
             f"recipient_count={len(recipients)}"
@@ -71,8 +90,61 @@ def _send(subject, recipients, body=None, html=None, attachments=None, cc=None, 
         return True, None
 
     except Exception as e:
+        # Never log or expose the SMTP password, the raw exception's
+        # underlying connection details, or full stack traces to the
+        # caller — only a safe, generic message.
         logger.error(
             f"Failed to send email. subject='{subject}', "
             f"recipient_count={len(recipients)}, error_type={type(e).__name__}"
         )
         return False, "Failed to send email"
+
+    
+
+def send_welcome_email(user_email, user_name):
+    """
+    Sends the welcome email after successful registration, using the
+    existing shared HTML-sending mechanism. Failures here are reported
+    back as (False, message) rather than raised, so the caller (the
+    registration route) can decide how to handle it without needing to
+    know anything about SMTP internals.
+    """
+    html_body = render_template(
+        "emails/welcome.html",
+        user_name=user_name,
+        login_url="http://127.0.0.1:5000/",  # placeholder until a real frontend URL exists
+        current_year=datetime.utcnow().year
+    )
+
+    return send_html_email(
+        subject="Welcome to Insurance Management Platform",
+        recipients=[user_email],
+        html_body=html_body
+    )
+
+def send_policy_created_email(customer_email, customer_name, policy):
+    """
+    Sends the policy confirmation email after a policy is successfully
+    created and committed. `policy` is the actual Policy model instance
+    that was just saved, so every value shown comes straight from the
+    trusted database record — nothing here is re-derived or guessed.
+    """
+    formatted_premium = f"\u20b9{policy.premium_amount:,.2f}"
+
+    html_body = render_template(
+        "emails/policy_created.html",
+        customer_name=customer_name,
+        policy_number=policy.policy_number,
+        policy_type=policy.type,
+        premium_amount=formatted_premium,
+        start_date=policy.start_date.isoformat() if policy.start_date else "",
+        end_date=policy.end_date.isoformat() if policy.end_date else "",
+        status=policy.status,
+        current_year=datetime.utcnow().year
+    )
+
+    return send_html_email(
+        subject="Your Insurance Policy Has Been Successfully Created",
+        recipients=[customer_email],
+        html_body=html_body
+    )
