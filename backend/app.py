@@ -3,20 +3,19 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_migrate import Migrate
 from config import Config
-from extensions import db, bcrypt, jwt
+from extensions import db, bcrypt, jwt, mail
 
 app = Flask(__name__)
 CORS(app)
 
 app.config.from_object(Config)
 
-# Ensure the upload directory exists at startup, rather than failing
-# on the first upload request.
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 db.init_app(app)
 bcrypt.init_app(app)
 jwt.init_app(app)
+mail.init_app(app)
 migrate = Migrate(app, db)
 
 # Import models
@@ -36,7 +35,7 @@ from routes.premium import premium_bp
 from routes.claim import claim_bp
 from routes.document import document_bp
 from routes.report import report_bp
-
+from routes.email_test import email_test_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
@@ -46,10 +45,9 @@ app.register_blueprint(premium_bp)
 app.register_blueprint(claim_bp)
 app.register_blueprint(document_bp)
 app.register_blueprint(report_bp)
+app.register_blueprint(email_test_bp)
 
-# Flask raises a built-in 413 when MAX_CONTENT_LENGTH is exceeded, but by
-# default it returns an HTML error page, not JSON. This handler converts
-# it to a clean JSON response, consistent with every other error in this API.
+
 @app.errorhandler(413)
 def handle_file_too_large(e):
     return jsonify({
@@ -66,4 +64,3 @@ def home():
 if __name__ == '__main__':
     print('Starting Flask server...')
     app.run(debug=True, port=5000)
-    
