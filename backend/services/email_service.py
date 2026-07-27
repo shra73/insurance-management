@@ -223,3 +223,23 @@ def send_claim_status_email(customer_email, customer_name, claim, policy, old_st
         recipients=[customer_email],
         html_body=html_body
     )
+
+def send_premium_due_reminder_email(customer_email, customer_name, policy, outstanding_amount, due_date, days_remaining):
+    formatted_outstanding = f"\u20b9{outstanding_amount:,.2f}"
+
+    html_body = render_template(
+        "emails/premium_due_reminder.html",
+        customer_name=customer_name,
+        policy_number=policy.policy_number,
+        policy_type=policy.type,
+        outstanding_amount=formatted_outstanding,
+        due_date=due_date.isoformat(),
+        days_remaining=days_remaining,
+        current_year=datetime.utcnow().year
+    )
+
+    return send_html_email(
+        subject="Premium Payment Reminder - Insurance Management Platform",
+        recipients=[customer_email],
+        html_body=html_body
+    )

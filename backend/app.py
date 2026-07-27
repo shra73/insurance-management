@@ -4,6 +4,7 @@ from flask_cors import CORS
 from flask_migrate import Migrate
 from config import Config
 from extensions import db, bcrypt, jwt, mail
+from scheduler import init_scheduler
 
 app = Flask(__name__)
 CORS(app)
@@ -25,6 +26,8 @@ from models.policy import Policy
 from models.premium import PremiumPayment
 from models.claim import Claim
 from models.document import Document
+from models.premium_reminder import PremiumReminder
+from models.premium_reminder import PremiumReminder
 
 # Register blueprints
 from routes.auth import auth_bp
@@ -36,6 +39,8 @@ from routes.claim import claim_bp
 from routes.document import document_bp
 from routes.report import report_bp
 from routes.email_test import email_test_bp
+from routes.admin_jobs import admin_jobs_bp
+app.register_blueprint(admin_jobs_bp)
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
