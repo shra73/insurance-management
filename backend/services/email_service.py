@@ -180,3 +180,46 @@ def send_premium_payment_email(customer_email, customer_name, payment, policy, p
         recipients=[customer_email],
         html_body=html_body
     )
+
+CLAIM_STATUS_MESSAGES = {
+    "PENDING": "Your claim has been received and is pending initial processing.",
+    "UNDER_REVIEW": "Your claim is currently under review.",
+    "APPROVED": "Your claim has been approved.",
+    "REJECTED": "Your claim has been rejected. Please contact the insurance support team for further information.",
+    "SETTLED": "Your claim has been settled."
+}
+
+
+def send_claim_status_email(customer_email, customer_name, claim, policy, old_status, new_status):
+    """
+    Sends the claim status change notification. `claim` and `policy` are the
+    actual committed model instances, so every value shown comes directly
+    from the trusted database record.
+    """
+    status_message = CLAIM_STATUS_MESSAGES.get(
+        new_status,
+        f"Your claim status has been updated to {new_status}."
+    )
+
+    formatted_claim_amount = (
+        f"\u20b9{claim.claim_amount:,.2f}" if claim.claim_amount is not None else None
+    )
+
+    html_body = render_template(
+        "emails/claim_status_update.html",
+        customer_name=customer_name,
+        status_message=status_message,
+        claim_number=claim.claim_number,
+        policy_number=policy.policy_number,
+        claim_amount=formatted_claim_amount,
+        old_status=old_status,
+        new_status=new_status,
+        updated_date=claim.updated_at.strftime("%Y-%m-%d %H:%M:%S") if claim.updated_at else "",
+        current_year=datetime.utcnow().year
+    )
+
+    return send_html_email(
+        subject="Claim Status Update - Insurance Management Platform",
+        recipients=[customer_email],
+        html_body=html_body
+    )

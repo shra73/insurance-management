@@ -1,3 +1,5 @@
+import logging
+from services.email_service import send_claim_status_email
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from flask import Blueprint, request, jsonify
@@ -9,7 +11,7 @@ from utils.decorators import roles_required
 from sqlalchemy import desc
 
 claim_bp = Blueprint("claim", __name__, url_prefix="/api/claims")
-
+logger = logging.getLogger(__name__)
 VALID_CLAIM_STATUSES = ("PENDING", "UNDER_REVIEW", "APPROVED", "REJECTED", "SETTLED")
 DEFAULT_STATUS = "PENDING"
 MAX_DESCRIPTION_LENGTH = 2000
@@ -187,40 +189,6 @@ def get_claims():
     }), 200
 
 
-@claim_bp.route("/<claim_id>", methods=["GET"])
-@roles_required("ADMIN", "AGENT")
-def get_claim_by_id(claim_id):
-    if not claim_id.isdigit():
-        return jsonify({"error": "Invalid claim ID. Must be a positive integer"}), 400
-
-    claim = Claim.query.get(int(claim_id))
-    if not claim:
-        return jsonify({"error": "Claim not found"}), 404
-
-    return jsonify({
-        "claim": {
-            "id": claim.id,
-            "policy_id": claim.policy_id,
-            "policy_number": claim.policy.policy_number,
-            "claim_number": claim.claim_number,
-            "claim_amount": str(claim.claim_amount),
-            "claim_date": claim.claim_date.isoformat() if claim.claim_date else None,
-            "status": claim.status,
-            "description": claim.description,
-            "created_at": claim.created_at.isoformat() if claim.created_at else None,
-            "updated_at": claim.updated_at.isoformat() if claim.updated_at else None
-        }
-    }), 200
-
-ALLOWED_TRANSITIONS = {
-    "PENDING": ["UNDER_REVIEW"],
-    "UNDER_REVIEW": ["APPROVED", "REJECTED"],
-    "APPROVED": ["SETTLED"],
-    "REJECTED": [],
-    "SETTLED": []
-}
-
-
 @claim_bp.route("/<claim_id>/status", methods=["PATCH"])
 @roles_required("ADMIN", "AGENT")
 def update_claim_status(claim_id):
@@ -246,13 +214,13 @@ def update_claim_status(claim_id):
             "allowed_statuses": list(VALID_CLAIM_STATUSES)
         }), 400
 
-    current_status = claim.status
-    allowed_next_statuses = ALLOWED_TRANSITIONS.get(current_status, [])
+    old_status = claim.status
+    allowed_next_statuses = ALLOWED_TRANSITIONS.get(old_status, [])
 
     if requested_status not in allowed_next_statuses:
         return jsonify({
             "error": "Invalid claim status transition",
-            "current_status": current_status,
+            "current_status": old_status,
             "requested_status": requested_status
         }), 409
 
@@ -265,6 +233,36 @@ def update_claim_status(claim_id):
         return jsonify({
             "error": "An unexpected error occurred while updating the claim status"
         }), 500
+
+    # Claim status has already been changed and committed at this point.
+    # Per the existing ALLOWED_TRANSITIONS rules, a claim can only reach
+    # this point if requested_status was a genuinely different, permitted
+    # next state from old_status (no status maps to itself in the
+    # transition table) — so old_status != claim.status is already
+    # guaranteed here. The explicit comparison below is kept anyway as a
+    # clear, self-documenting safety check, so this code doesn't silently
+    # rely on that guarantee holding if ALLOWED_TRANSITIONS is ever
+    # modified in the future.
+    new_status = claim.status
+    if old_status != new_status:
+        try:
+            policy = claim.policy
+            customer = policy.customer
+
+            success, error_message = send_claim_status_email(
+                customer.email, customer.name, claim, policy, old_status, new_status
+            )
+            if not success:
+                logger.error(
+                    f"Claim status update email failed to send. "
+                    f"claim_id={claim.id}, old_status={old_status}, "
+                    f"new_status={new_status}, reason={error_message}"
+                )
+        except Exception:
+            logger.error(
+                f"Unexpected error while attempting to send claim status update email. "
+                f"claim_id={claim.id}, old_status={old_status}, new_status={new_status}"
+            )
 
     return jsonify({
         "message": "Claim status updated successfully",
