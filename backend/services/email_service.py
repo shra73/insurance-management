@@ -243,3 +243,21 @@ def send_premium_due_reminder_email(customer_email, customer_name, policy, outst
         recipients=[customer_email],
         html_body=html_body
     )
+
+def send_policy_expiry_reminder_email(customer_email, customer_name, policy, expiry_date, days_remaining):
+    html_body = render_template(
+        "emails/policy_expiry_reminder.html",
+        customer_name=customer_name,
+        policy_number=policy.policy_number,
+        policy_type=policy.type,
+        expiry_date=expiry_date.isoformat(),
+        days_remaining=days_remaining,
+        policy_status=policy.status,
+        current_year=datetime.utcnow().year
+    )
+
+    return send_html_email(
+        subject="Policy Expiry Reminder - Insurance Management Platform",
+        recipients=[customer_email],
+        html_body=html_body
+    )

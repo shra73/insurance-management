@@ -7,6 +7,7 @@ from models.policy import Policy
 from models.premium import PremiumPayment
 from models.premium_reminder import PremiumReminder
 from services.email_service import send_premium_due_reminder_email
+from services.email_service import send_policy_expiry_reminder_email
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,103 @@ def run_premium_reminder_job():
 
     logger.info(
         f"Premium reminder job completed. processed={processed}, sent={sent}, "
+        f"skipped={skipped}, failed={failed}"
+    )
+
+    return {
+        "processed": processed,
+        "sent": sent,
+        "skipped": skipped,
+        "failed": failed
+    }
+
+
+
+def run_policy_expiry_reminder_job():
+    """
+    Checks all ACTIVE policies whose end_date (the existing model's actual
+    expiry field) falls within POLICY_EXPIRY_REMINDER_DAYS, and sends an
+    expiry reminder for each one that hasn't already received one for that
+    exact expiry date. Reuses the same PremiumReminder table, distinguished
+    by reminder_type="POLICY_EXPIRY" -- entirely independent from
+    "PREMIUM_DUE" rows, since the unique constraint includes reminder_type.
+    """
+    reminder_days = current_app.config["POLICY_EXPIRY_REMINDER_DAYS"]
+    today = datetime.utcnow().date()
+    window_end = today + timedelta(days=reminder_days)
+
+    # Not yet expired (end_date >= today) and within the reminder window.
+    candidate_policies = Policy.query.filter(
+        Policy.status == "ACTIVE",
+        Policy.end_date >= today,
+        Policy.end_date <= window_end
+    ).all()
+
+    processed = 0
+    sent = 0
+    skipped = 0
+    failed = 0
+
+    for policy in candidate_policies:
+        processed += 1
+
+        expiry_date = policy.end_date
+
+        customer = policy.customer
+        if not customer or not customer.email:
+            logger.warning(
+                f"Skipping policy expiry reminder: customer or email missing. policy_id={policy.id}"
+            )
+            skipped += 1
+            continue
+
+        already_sent = PremiumReminder.query.filter_by(
+            policy_id=policy.id,
+            due_date=expiry_date,
+            reminder_type="POLICY_EXPIRY"
+        ).first()
+
+        if already_sent:
+            skipped += 1
+            continue
+
+        days_remaining = (expiry_date - today).days
+
+        try:
+            success, error_message = send_policy_expiry_reminder_email(
+                customer.email, customer.name, policy, expiry_date, days_remaining
+            )
+        except Exception:
+            success = False
+            error_message = "Unexpected error while sending"
+
+        if not success:
+            logger.error(
+                f"Policy expiry reminder email failed to send. policy_id={policy.id}, reason={error_message}"
+            )
+            failed += 1
+            continue
+
+        try:
+            reminder_record = PremiumReminder(
+                policy_id=policy.id,
+                reminder_type="POLICY_EXPIRY",
+                due_date=expiry_date,
+                sent_at=datetime.utcnow()
+            )
+            db.session.add(reminder_record)
+            db.session.commit()
+            sent += 1
+        except Exception:
+            db.session.rollback()
+            logger.error(
+                f"Expiry reminder email sent but failed to record PremiumReminder row "
+                f"(possible race condition or DB error). policy_id={policy.id}"
+            )
+            failed += 1
+
+    logger.info(
+        f"Policy expiry reminder job completed. processed={processed}, sent={sent}, "
         f"skipped={skipped}, failed={failed}"
     )
 
