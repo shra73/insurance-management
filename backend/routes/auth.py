@@ -3,6 +3,10 @@ from sqlalchemy.exc import IntegrityError
 from flask_jwt_extended import create_access_token
 from extensions import db
 from models.user import User
+from services.email_service import send_welcome_email
+import logging
+
+logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -56,6 +60,26 @@ def register():
     except Exception:
         db.session.rollback()
         return jsonify({"error": "An unexpected error occurred while registering the user"}), 500
+
+    # Registration has already succeeded and been committed at this point.
+    # Sending the welcome email is a best-effort side effect: if it fails
+    # for any reason (SMTP down, bad credentials, network issue), the
+    # user's account still exists and the registration response below is
+    # still returned normally. The failure is only logged, never exposed
+    # to the client, and never causes a rollback of the already-committed
+    # user record.
+    try:
+        success, error_message = send_welcome_email(new_user.email, new_user.name)
+        if not success:
+            logger.error(
+                f"Welcome email failed to send after successful registration. "
+                f"user_id={new_user.id}, reason={error_message}"
+            )
+    except Exception:
+        logger.error(
+            f"Unexpected error while attempting to send welcome email. "
+            f"user_id={new_user.id}"
+        )
 
     return jsonify({
         "message": "User registered successfully",
