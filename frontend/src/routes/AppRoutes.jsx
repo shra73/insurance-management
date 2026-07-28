@@ -6,12 +6,12 @@ import PublicRoute from "./PublicRoute";
 import LoginPage from "../pages/LoginPage";
 import RegisterPage from "../pages/RegisterPage";
 import ForgotPasswordPage from "../pages/ForgotPasswordPage";
+import DashboardPage from "../pages/DashboardPage";
 import NotFoundPage from "../pages/NotFoundPage";
 
 export default function AppRoutes() {
   return (
     <Routes>
-      {/* Public/auth routes: redirect to /dashboard if already logged in */}
       <Route
         element={
           <PublicRoute>
@@ -24,8 +24,6 @@ export default function AppRoutes() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       </Route>
 
-      {/* Authenticated routes -- business pages (Dashboard, Customers,
-          etc.) are intentionally NOT built in this step, per spec. */}
       <Route
         element={
           <ProtectedRoute>
@@ -33,7 +31,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        {/* <Route path="/dashboard" element={<DashboardPage />} /> */}
+        <Route path="/dashboard" element={<DashboardPage />} />
         {/* <Route path="/customers" element={<CustomersPage />} /> */}
         {/* <Route path="/policies" element={<PoliciesPage />} /> */}
       </Route>
