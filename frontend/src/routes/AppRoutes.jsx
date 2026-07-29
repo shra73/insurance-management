@@ -7,6 +7,8 @@ import LoginPage from "../pages/LoginPage";
 import RegisterPage from "../pages/RegisterPage";
 import ForgotPasswordPage from "../pages/ForgotPasswordPage";
 import DashboardPage from "../pages/DashboardPage";
+import CustomersPage from "../pages/CustomersPage";
+import CustomerDetailPage from "../pages/CustomerDetailPage";
 import NotFoundPage from "../pages/NotFoundPage";
 
 export default function AppRoutes() {
@@ -32,7 +34,8 @@ export default function AppRoutes() {
         }
       >
         <Route path="/dashboard" element={<DashboardPage />} />
-        {/* <Route path="/customers" element={<CustomersPage />} /> */}
+        <Route path="/customers" element={<CustomersPage />} />
+        <Route path="/customers/:id" element={<CustomerDetailPage />} />
         {/* <Route path="/policies" element={<PoliciesPage />} /> */}
       </Route>
 
