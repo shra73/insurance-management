@@ -11,6 +11,8 @@ import CustomersPage from "../pages/CustomersPage";
 import CustomerDetailPage from "../pages/CustomerDetailPage";
 import PoliciesPage from "../pages/PoliciesPage";
 import PolicyDetailPage from "../pages/PolicyDetailPage";
+import PremiumsPage from "../pages/PremiumsPage";
+import PremiumDetailPage from "../pages/PremiumDetailPage";
 import NotFoundPage from "../pages/NotFoundPage";
 
 export default function AppRoutes() {
@@ -40,6 +42,8 @@ export default function AppRoutes() {
         <Route path="/customers/:id" element={<CustomerDetailPage />} />
         <Route path="/policies" element={<PoliciesPage />} />
         <Route path="/policies/:id" element={<PolicyDetailPage />} />
+        <Route path="/premiums" element={<PremiumsPage />} />
+        <Route path="/premiums/:id" element={<PremiumDetailPage />} />
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />
