@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useClaims } from "../hooks/useClaims";
 import ClaimTable from "../components/claims/ClaimTable";
@@ -135,6 +136,13 @@ export default function ClaimsPage() {
 // "Edit" from the list just navigates there via a toast + link, avoiding
 // a second full form modal duplicating ClaimDetailPage's edit form.
 function ClaimEditRedirectNotice({ claim, onClose }) {
+  const navigate = useNavigate();
+
+  const handleGoToClaim = () => {
+    onClose();
+    navigate(`/claims/${claim.id}`);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6 text-center">
@@ -142,12 +150,12 @@ function ClaimEditRedirectNotice({ claim, onClose }) {
           Editing claim <b>{claim.claim_number}</b> details is available on its detail page.
         </p>
         <div className="flex justify-center gap-3">
-          <a
-            href={`/claims/${claim.id}`}
+          <button
+            onClick={handleGoToClaim}
             className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary-light"
           >
             Go to Claim
-          </a>
+          </button>
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100"

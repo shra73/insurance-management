@@ -15,6 +15,8 @@ import PremiumsPage from "../pages/PremiumsPage";
 import PremiumDetailPage from "../pages/PremiumDetailPage";
 import ClaimsPage from "../pages/ClaimsPage";
 import ClaimDetailPage from "../pages/ClaimDetailPage";
+import DocumentsPage from "../pages/DocumentsPage";
+import DocumentDetailPage from "../pages/DocumentDetailPage";
 import NotFoundPage from "../pages/NotFoundPage";
 
 export default function AppRoutes() {
@@ -48,6 +50,8 @@ export default function AppRoutes() {
         <Route path="/premiums/:id" element={<PremiumDetailPage />} />
         <Route path="/claims" element={<ClaimsPage />} />
         <Route path="/claims/:id" element={<ClaimDetailPage />} />
+        <Route path="/documents" element={<DocumentsPage />} />
+        <Route path="/documents/:id" element={<DocumentDetailPage />} />
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />

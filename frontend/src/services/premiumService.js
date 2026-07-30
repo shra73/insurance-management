@@ -15,9 +15,6 @@ export async function createPremiumPayment(payload) {
   return data;
 }
 
-// No single-receipt PDF endpoint exists -- this downloads the existing
-// full premium REPORT PDF (GET /api/reports/premiums/pdf). Labeled
-// honestly in the UI rather than implying a per-payment receipt exists.
 export async function downloadPremiumReportPdf() {
   const response = await axiosInstance.get("/api/reports/premiums/pdf", {
     responseType: "blob"
