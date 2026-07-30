@@ -1,17 +1,14 @@
-import re
-import logging
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from flask import Blueprint, request, jsonify
 from sqlalchemy.exc import IntegrityError
 from extensions import db
 from models.policy import Policy
 from models.customer import Customer
 from utils.decorators import roles_required
-from decimal import Decimal, InvalidOperation
-from services.email_service import send_policy_created_email
 
 policy_bp = Blueprint("policy", __name__, url_prefix="/api/policies")
-logger = logging.getLogger(__name__)
+
 VALID_STATUSES = ("ACTIVE", "EXPIRED", "CANCELLED", "PENDING")
 MAX_PER_PAGE = 100
 DEFAULT_PAGE = 1
@@ -53,16 +50,26 @@ def create_policy():
 
     try:
         start_date = datetime.strptime(start_date_raw, "%Y-%m-%d").date()
-    except (TypeError, ValueError):
-        return jsonify({"error": "Invalid date format for start_date. Expected YYYY-MM-DD"}), 400
-
-    try:
         end_date = datetime.strptime(end_date_raw, "%Y-%m-%d").date()
-    except (TypeError, ValueError):
-        return jsonify({"error": "Invalid date format for end_date. Expected YYYY-MM-DD"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid date format. Expected YYYY-MM-DD"}), 400
 
     if end_date <= start_date:
         return jsonify({"error": "'end_date' must be after 'start_date'"}), 400
+
+    try:
+        premium_amount = Decimal(str(premium_amount))
+        if premium_amount <= 0:
+            raise InvalidOperation
+    except (InvalidOperation, ValueError, TypeError):
+        return jsonify({"error": "'premium_amount' must be a positive number"}), 400
+
+    if status not in VALID_STATUSES:
+        return jsonify({"error": "Invalid status", "allowed_statuses": list(VALID_STATUSES)}), 400
+
+    existing_policy = Policy.query.filter_by(policy_number=policy_number).first()
+    if existing_policy:
+        return jsonify({"error": "A policy with this policy_number already exists"}), 409
 
     try:
         new_policy = Policy(
@@ -83,30 +90,27 @@ def create_policy():
         db.session.rollback()
         return jsonify({"error": "An unexpected error occurred while creating the policy"}), 500
 
-    # Policy creation has already succeeded and committed at this point.
-    # `customer` was already looked up earlier in this function (during the
-    # existing customer_id validation step) via Customer.query.get(...), so
-    # its email comes directly from the trusted database record — the
-    # client has no field in the request body through which to override
-    # or supply a different notification address.
-    try:
-        success, error_message = send_policy_created_email(
-            customer.email, customer.name, new_policy
-        )
-        if not success:
-            logger.error(
-                f"Policy confirmation email failed to send. "
-                f"policy_id={new_policy.id}, customer_id={customer.id}, reason={error_message}"
-            )
-    except Exception:
-        logger.error(
-            f"Unexpected error while attempting to send policy confirmation email. "
-            f"policy_id={new_policy.id}, customer_id={customer.id}"
-        )
-
     return jsonify({"message": "Policy created successfully", "policy": new_policy.to_dict()}), 201
 
-    # Validate per_page
+
+@policy_bp.route("", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def get_policies():
+    page_raw = request.args.get("page", str(DEFAULT_PAGE))
+    per_page_raw = request.args.get("per_page", str(DEFAULT_PER_PAGE))
+    search = request.args.get("search", "").strip()
+
+    filter_status = request.args.get("status", "").strip()
+    filter_type = request.args.get("type", "").strip()
+    filter_customer_id_raw = request.args.get("customer_id", "").strip()
+
+    try:
+        page = int(page_raw)
+        if page < 1:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid 'page' parameter. Must be a positive integer"}), 400
+
     try:
         per_page = int(per_page_raw)
         if per_page < 1:
@@ -117,14 +121,9 @@ def create_policy():
     if per_page > MAX_PER_PAGE:
         return jsonify({"error": f"'per_page' cannot exceed {MAX_PER_PAGE}"}), 400
 
-    # Validate status filter
     if filter_status and filter_status not in VALID_STATUSES:
-        return jsonify({
-            "error": "Invalid 'status' filter",
-            "allowed_statuses": list(VALID_STATUSES)
-        }), 400
+        return jsonify({"error": "Invalid 'status' filter", "allowed_statuses": list(VALID_STATUSES)}), 400
 
-    # Validate customer_id filter
     filter_customer_id = None
     if filter_customer_id_raw:
         if not filter_customer_id_raw.isdigit():
@@ -133,7 +132,6 @@ def create_policy():
 
     query = Policy.query
 
-    # Free-text search across policy_number, type, status (case-insensitive)
     if search:
         search_pattern = f"%{search}%"
         query = query.filter(
@@ -144,7 +142,6 @@ def create_policy():
             )
         )
 
-    # Optional filters
     if filter_status:
         query = query.filter(Policy.status == filter_status)
     if filter_type:
@@ -170,6 +167,18 @@ def create_policy():
     }), 200
 
 
+@policy_bp.route("/<policy_id>", methods=["GET"])
+@roles_required("ADMIN", "AGENT")
+def get_policy_by_id(policy_id):
+    if not policy_id.isdigit():
+        return jsonify({"error": "Invalid policy ID. Must be a positive integer"}), 400
+
+    policy = Policy.query.get(int(policy_id))
+    if not policy:
+        return jsonify({"error": "Policy not found"}), 404
+
+    return jsonify({"policy": policy.to_dict()}), 200
+
 
 @policy_bp.route("/<policy_id>", methods=["PUT"])
 @roles_required("ADMIN", "AGENT")
@@ -185,54 +194,40 @@ def update_policy(policy_id):
     if not data:
         return jsonify({"error": "Request body must be valid JSON"}), 400
 
-    # Reject any attempt to modify the ID
     if "id" in data:
         return jsonify({"error": "Policy ID cannot be modified"}), 400
 
-    allowed_fields = {
-        "customer_id", "policy_number", "type",
-        "start_date", "end_date", "premium_amount", "status"
-    }
+    allowed_fields = {"customer_id", "policy_number", "type", "start_date", "end_date", "premium_amount", "status"}
     unknown_fields = [key for key in data.keys() if key not in allowed_fields]
     if unknown_fields:
-        return jsonify({
-            "error": "Unsupported fields in request",
-            "fields": unknown_fields
-        }), 400
+        return jsonify({"error": "Unsupported fields in request", "fields": unknown_fields}), 400
 
-    # --- Validate customer_id if provided ---
     new_customer_id = None
     if "customer_id" in data:
         new_customer_id = data["customer_id"]
         if not isinstance(new_customer_id, int):
             return jsonify({"error": "'customer_id' must be an integer"}), 400
-
         customer = Customer.query.get(new_customer_id)
         if not customer:
             return jsonify({"error": "Customer not found"}), 404
 
-    # --- Validate policy_number if provided ---
     new_policy_number = None
     if "policy_number" in data:
         new_policy_number = data["policy_number"]
         if not new_policy_number:
             return jsonify({"error": "'policy_number' cannot be empty"}), 400
-
         existing_policy = Policy.query.filter(
-            Policy.policy_number == new_policy_number,
-            Policy.id != policy.id
+            Policy.policy_number == new_policy_number, Policy.id != policy.id
         ).first()
         if existing_policy:
             return jsonify({"error": "A policy with this policy_number already exists"}), 409
 
-    # --- Validate type if provided ---
     new_type = None
     if "type" in data:
         new_type = data["type"]
         if not new_type:
             return jsonify({"error": "'type' cannot be empty"}), 400
 
-    # --- Validate start_date / end_date if provided ---
     new_start_date = None
     if "start_date" in data:
         try:
@@ -247,14 +242,12 @@ def update_policy(policy_id):
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid date format for end_date. Expected YYYY-MM-DD"}), 400
 
-    # Cross-check date ordering using whichever values will actually apply after update
     effective_start_date = new_start_date if new_start_date is not None else policy.start_date
     effective_end_date = new_end_date if new_end_date is not None else policy.end_date
 
     if effective_end_date <= effective_start_date:
         return jsonify({"error": "'end_date' must be after 'start_date'"}), 400
 
-    # --- Validate premium_amount if provided ---
     new_premium_amount = None
     if "premium_amount" in data:
         try:
@@ -264,17 +257,12 @@ def update_policy(policy_id):
         except (InvalidOperation, ValueError, TypeError):
             return jsonify({"error": "'premium_amount' must be a positive monetary value"}), 400
 
-    # --- Validate status if provided ---
     new_status = None
     if "status" in data:
         new_status = data["status"]
         if new_status not in VALID_STATUSES:
-            return jsonify({
-                "error": "Invalid status",
-                "allowed_statuses": list(VALID_STATUSES)
-            }), 400
+            return jsonify({"error": "Invalid status", "allowed_statuses": list(VALID_STATUSES)}), 400
 
-    # --- Apply updates (only fields actually present in the request) ---
     try:
         if new_customer_id is not None:
             policy.customer_id = new_customer_id
@@ -292,19 +280,16 @@ def update_policy(policy_id):
             policy.status = new_status
 
         db.session.commit()
-
     except IntegrityError:
         db.session.rollback()
         return jsonify({"error": "A policy with this policy_number already exists"}), 409
-
     except Exception:
         db.session.rollback()
         return jsonify({"error": "An unexpected error occurred while updating the policy"}), 500
 
-    return jsonify({
-        "message": "Policy updated successfully",
-        "policy": policy.to_dict()
-    }), 200
+    return jsonify({"message": "Policy updated successfully", "policy": policy.to_dict()}), 200
+
+
 @policy_bp.route("/<policy_id>", methods=["DELETE"])
 @roles_required("ADMIN", "AGENT")
 def delete_policy(policy_id):
@@ -315,33 +300,11 @@ def delete_policy(policy_id):
     if not policy:
         return jsonify({"error": "Policy not found"}), 404
 
-    # --- Future-proofing hook ---
-    # Once Premium/Claim/Document models exist and have a relationship
-    # back to Policy (e.g. via a ForeignKey + db.relationship), check here
-    # whether this policy has any related records before allowing deletion.
-    # Example (NOT active yet, none of those models exist in this step):
-    #
-    # if policy.premiums and len(policy.premiums) > 0:
-    #     return jsonify({
-    #         "error": "Cannot delete policy with existing premium records"
-    #     }), 409
-    # if policy.claims and len(policy.claims) > 0:
-    #     return jsonify({
-    #         "error": "Cannot delete policy with existing claim records"
-    #     }), 409
-    #
-    # This project currently has no such relationships defined, so no check
-    # is performed here yet — deletion proceeds directly below.
-
     try:
         db.session.delete(policy)
         db.session.commit()
     except Exception:
         db.session.rollback()
-        return jsonify({
-            "error": "An unexpected error occurred while deleting the policy"
-        }), 500
+        return jsonify({"error": "An unexpected error occurred while deleting the policy"}), 500
 
-    return jsonify({
-        "message": "Policy deleted successfully"
-    }), 200
+    return jsonify({"message": "Policy deleted successfully"}), 200

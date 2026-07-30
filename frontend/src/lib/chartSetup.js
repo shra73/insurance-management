@@ -8,13 +8,10 @@ import {
   ArcElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 } from "chart.js";
 
-// Chart.js v4 requires every element/scale type you use to be registered
-// once, globally, before any chart renders. Done here in one place so
-// every dashboard chart component can just import "../lib/chartSetup"
-// without repeating this boilerplate.
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -24,5 +21,6 @@ ChartJS.register(
   ArcElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 );

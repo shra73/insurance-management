@@ -9,6 +9,8 @@ import ForgotPasswordPage from "../pages/ForgotPasswordPage";
 import DashboardPage from "../pages/DashboardPage";
 import CustomersPage from "../pages/CustomersPage";
 import CustomerDetailPage from "../pages/CustomerDetailPage";
+import PoliciesPage from "../pages/PoliciesPage";
+import PolicyDetailPage from "../pages/PolicyDetailPage";
 import NotFoundPage from "../pages/NotFoundPage";
 
 export default function AppRoutes() {
@@ -36,7 +38,8 @@ export default function AppRoutes() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/customers/:id" element={<CustomerDetailPage />} />
-        {/* <Route path="/policies" element={<PoliciesPage />} /> */}
+        <Route path="/policies" element={<PoliciesPage />} />
+        <Route path="/policies/:id" element={<PolicyDetailPage />} />
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />
