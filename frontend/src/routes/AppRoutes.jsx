@@ -17,6 +17,7 @@ import ClaimsPage from "../pages/ClaimsPage";
 import ClaimDetailPage from "../pages/ClaimDetailPage";
 import DocumentsPage from "../pages/DocumentsPage";
 import DocumentDetailPage from "../pages/DocumentDetailPage";
+import ReportsPage from "../pages/ReportsPage";
 import NotFoundPage from "../pages/NotFoundPage";
 
 export default function AppRoutes() {
@@ -52,6 +53,7 @@ export default function AppRoutes() {
         <Route path="/claims/:id" element={<ClaimDetailPage />} />
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/documents/:id" element={<DocumentDetailPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />
