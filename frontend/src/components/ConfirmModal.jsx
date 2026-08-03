@@ -1,3 +1,6 @@
+import { useEffect, useRef } from "react";
+import Button from "./ui/Button";
+
 export default function ConfirmModal({
   isOpen,
   title,
@@ -7,28 +10,45 @@ export default function ConfirmModal({
   onConfirm,
   onCancel
 }) {
+  const dialogRef = useRef(null);
+
+  // Basic accessibility: focus the dialog on open, close on Escape.
+  useEffect(() => {
+    if (isOpen) {
+      dialogRef.current?.focus();
+      const handleKey = (e) => e.key === "Escape" && onCancel();
+      window.addEventListener("keydown", handleKey);
+      return () => window.removeEventListener("keydown", handleKey);
+    }
+  }, [isOpen, onCancel]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">{title}</h3>
-        <p className="text-sm text-gray-600 mb-6">{message}</p>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+      onClick={onCancel}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-modal-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="card shadow-modal w-full max-w-sm p-6 focus:outline-none"
+      >
+        <h3 id="confirm-modal-title" className="text-base font-semibold text-slate-900 mb-2">
+          {title}
+        </h3>
+        <p className="text-sm text-slate-500 mb-6">{message}</p>
         <div className="flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100"
-          >
+          <Button variant="ghost" size="sm" onClick={onCancel} disabled={isLoading}>
             Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-60"
-          >
-            {isLoading ? "Deleting..." : confirmLabel}
-          </button>
+          </Button>
+          <Button variant="danger" size="sm" onClick={onConfirm} isLoading={isLoading}>
+            {confirmLabel}
+          </Button>
         </div>
       </div>
     </div>

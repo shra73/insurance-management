@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { customerSchema } from "../../schemas/customerSchemas";
 import { useCreateCustomer, useUpdateCustomer } from "../../hooks/useCustomerMutations";
+import Button from "../ui/Button";
 
 export default function CustomerFormModal({ isOpen, onClose, customer }) {
   const isEditMode = !!customer;
@@ -20,7 +21,6 @@ export default function CustomerFormModal({ isOpen, onClose, customer }) {
     defaultValues: { name: "", dob: "", phone: "", address: "", email: "" }
   });
 
-  // Prefill the form when editing an existing customer.
   useEffect(() => {
     if (customer) {
       reset({
@@ -39,78 +39,74 @@ export default function CustomerFormModal({ isOpen, onClose, customer }) {
 
   const onSubmit = (data) => {
     if (isEditMode) {
-      updateMutation.mutate(
-        { id: customer.id, payload: data },
-        { onSuccess: onClose }
-      );
+      updateMutation.mutate({ id: customer.id, payload: data }, { onSuccess: onClose });
     } else {
       createMutation.mutate(data, { onSuccess: onClose });
     }
   };
 
   const fields = [
-    { name: "name", label: "Full Name", type: "text" },
-    { name: "dob", label: "Date of Birth", type: "date" },
+    { name: "name", label: "Full name", type: "text" },
+    { name: "dob", label: "Date of birth", type: "date" },
     { name: "phone", label: "Phone", type: "text" },
     { name: "email", label: "Email", type: "email" }
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
-        <h3 className="text-base font-semibold text-gray-900 mb-5">
-          {isEditMode ? "Edit Customer" : "Add Customer"}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="customer-modal-title"
+        onClick={(e) => e.stopPropagation()}
+        className="card shadow-modal w-full max-w-md p-6 max-h-[90vh] overflow-y-auto"
+      >
+        <h3 id="customer-modal-title" className="text-lg font-semibold text-slate-900 mb-5">
+          {isEditMode ? "Edit customer" : "Add customer"}
         </h3>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {fields.map((field) => (
             <div key={field.name}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {field.label}
-              </label>
+              <label htmlFor={field.name} className="form-label">{field.label}</label>
               <input
+                id={field.name}
                 type={field.type}
                 {...register(field.name)}
-                className={`w-full px-3.5 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 ${
-                  errors[field.name] ? "border-red-400" : "border-gray-300"
-                }`}
+                aria-invalid={!!errors[field.name]}
+                aria-describedby={errors[field.name] ? `${field.name}-error` : undefined}
+                className={errors[field.name] ? "form-input-error" : "form-input"}
               />
               {errors[field.name] && (
-                <p className="text-red-600 text-xs mt-1">{errors[field.name].message}</p>
+                <p id={`${field.name}-error`} className="form-error-text">
+                  {errors[field.name].message}
+                </p>
               )}
             </div>
           ))}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+            <label htmlFor="address" className="form-label">Address</label>
             <textarea
+              id="address"
               rows={2}
               {...register("address")}
-              className={`w-full px-3.5 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 ${
-                errors.address ? "border-red-400" : "border-gray-300"
-              }`}
+              aria-invalid={!!errors.address}
+              className={errors.address ? "form-input-error resize-none" : "form-input resize-none"}
             />
-            {errors.address && (
-              <p className="text-red-600 text-xs mt-1">{errors.address.message}</p>
-            )}
+            {errors.address && <p className="form-error-text">{errors.address.message}</p>}
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isSaving}
-              className="px-4 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100"
-            >
+            <Button type="button" variant="ghost" onClick={onClose} disabled={isSaving}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary-light disabled:opacity-60"
-            >
-              {isSaving ? "Saving..." : isEditMode ? "Save Changes" : "Add Customer"}
-            </button>
+            </Button>
+            <Button type="submit" variant="primary" isLoading={isSaving}>
+              {isEditMode ? "Save changes" : "Add customer"}
+            </Button>
           </div>
         </form>
       </div>
