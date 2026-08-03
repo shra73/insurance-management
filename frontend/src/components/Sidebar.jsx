@@ -7,6 +7,7 @@ const navItems = [
   { label: "Premiums", path: "/premiums" },
   { label: "Claims", path: "/claims" },
   { label: "Documents", path: "/documents" },
+  { label: "Reports", path: "/reports" },
 ];
 
 export default function Sidebar({ isOpen, onClose }) {
@@ -19,7 +20,6 @@ export default function Sidebar({ isOpen, onClose }) {
           onClick={onClose}
         />
       )}
-
       <aside
         className={`
           fixed md:static top-0 left-0 h-full md:h-auto z-30

@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { useAuth } from "../hooks/useAuth";
 
@@ -31,9 +31,12 @@ export default function Navbar({ onMenuToggle }) {
 
       {user && (
         <div className="flex items-center gap-4">
-          <span className="hidden sm:block text-sm opacity-90">
+          <Link
+            to="/profile"
+            className="hidden sm:block text-sm opacity-90 hover:opacity-100 hover:underline"
+          >
             {user.name} <span className="opacity-60">({user.role})</span>
-          </span>
+          </Link>
           <button
             onClick={handleLogout}
             className="text-sm bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded transition-colors"

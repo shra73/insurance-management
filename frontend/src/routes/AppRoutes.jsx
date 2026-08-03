@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import MainLayout from "../layouts/MainLayout";
 import AuthLayout from "../layouts/AuthLayout";
 import ProtectedRoute from "./ProtectedRoute";
@@ -18,11 +18,14 @@ import ClaimDetailPage from "../pages/ClaimDetailPage";
 import DocumentsPage from "../pages/DocumentsPage";
 import DocumentDetailPage from "../pages/DocumentDetailPage";
 import ReportsPage from "../pages/ReportsPage";
+import ProfilePage from "../pages/ProfilePage";
 import NotFoundPage from "../pages/NotFoundPage";
 
 export default function AppRoutes() {
   return (
     <Routes>
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
       <Route
         element={
           <PublicRoute>
@@ -54,6 +57,7 @@ export default function AppRoutes() {
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/documents/:id" element={<DocumentDetailPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />
